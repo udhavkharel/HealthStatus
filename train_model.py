@@ -1,95 +1,184 @@
-# This file trains the machine learning model for the health AI agent.
+# This file trains machine learning models for the diseases
+# where public datasets are available and suitable.
 
-import os  # This lets Python work with folders and file paths.
-import joblib  # This saves the trained model so the app can use it later.
-import pandas as pd  # This reads and manages the dataset in table format.
-import numpy as np  # This helps with numerical values and missing values.
+import os
+import joblib
+import numpy as np
+import pandas as pd
 
-from sklearn.model_selection import train_test_split  # This splits data into training and testing parts.
-from sklearn.pipeline import Pipeline  # This keeps preprocessing and the model together.
-from sklearn.impute import SimpleImputer  # This fills missing values with a safe statistical value.
-from sklearn.ensemble import RandomForestClassifier  # This is the ML model used for classification.
-from sklearn.metrics import accuracy_score, recall_score, precision_score, roc_auc_score  # These check model performance.
-
-DATA_PATH = "data/diabetes.csv"  # This is where the training dataset should be stored.
-MODEL_PATH = "models/health_risk_model.joblib"  # This is where the trained model will be saved.
-
-FEATURES = [  # These are the columns the model will learn from.
-    "Pregnancies",  # Number of pregnancies; use 0 if not applicable.
-    "Glucose",  # Blood glucose value from the dataset.
-    "BloodPressure",  # Blood pressure value from the dataset.
-    "SkinThickness",  # Skin thickness measurement from the dataset.
-    "Insulin",  # Insulin measurement from the dataset.
-    "BMI",  # Body Mass Index.
-    "DiabetesPedigreeFunction",  # Diabetes family-history style score in the dataset.
-    "Age",  # Age of the person.
-]
-
-TARGET = "Outcome"  # This is the label column: 0 means no diabetes, 1 means diabetes in the dataset.
-
-ZERO_AS_MISSING = [  # These columns should not normally be zero, so zero is treated as missing.
-    "Glucose",  # A glucose value of 0 is not realistic for a living patient.
-    "BloodPressure",  # A blood pressure value of 0 is not realistic.
-    "SkinThickness",  # A zero here usually means it was not measured.
-    "Insulin",  # A zero here usually means it was not measured.
-    "BMI",  # BMI of 0 is not realistic.
-]
+from sklearn.model_selection import train_test_split
+from sklearn.pipeline import Pipeline
+from sklearn.impute import SimpleImputer
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import accuracy_score, roc_auc_score
 
 
-def train_model():  # This function trains and saves the model.
-    if not os.path.exists(DATA_PATH):  # This checks whether the dataset file exists.
-        raise FileNotFoundError("Please place your Kaggle diabetes.csv file inside the data folder.")  # This explains what is missing.
+# This dictionary tells the program which datasets to use,
+# which columns are features, and where the trained model should be saved.
+TRAINING_CONFIG = {
+    "Diabetes": {
+        "file": "data/diabetes.csv",
+        "target": "Outcome",
+        "features": [
+            "Pregnancies",
+            "Glucose",
+            "BloodPressure",
+            "SkinThickness",
+            "Insulin",
+            "BMI",
+            "DiabetesPedigreeFunction",
+            "Age",
+        ],
+        "zero_as_missing": ["Glucose", "BloodPressure", "SkinThickness", "Insulin", "BMI"],
+        "output_model": "models/diabetes_model.joblib",
+    },
+    "Heart Disease": {
+        "file": "data/heart.csv",
+        "target": "output",
+        "features": [
+            "age",
+            "sex",
+            "cp",
+            "trtbps",
+            "chol",
+            "fbs",
+            "thalachh",
+            "oldpeak",
+        ],
+        "zero_as_missing": [],
+        "output_model": "models/heart_model.joblib",
+    },
+    "Liver Health": {
+        "file": "data/liver.csv",
+        "target": "Dataset",
+        "features": [
+            "Age",
+            "Total_Bilirubin",
+            "Direct_Bilirubin",
+            "Alkaline_Phosphotase",
+            "Alamine_Aminotransferase",
+            "Aspartate_Aminotransferase",
+            "Total_Protiens",
+            "Albumin",
+            "Albumin_and_Globulin_Ratio",
+        ],
+        "zero_as_missing": [],
+        "output_model": "models/liver_model.joblib",
+    },
+}
 
-    df = pd.read_csv(DATA_PATH)  # This loads the CSV dataset into a table.
 
-    missing_columns = [col for col in FEATURES + [TARGET] if col not in df.columns]  # This finds columns that are missing.
-    if missing_columns:  # This checks if any required columns are absent.
-        raise ValueError(f"Your dataset is missing these columns: {missing_columns}")  # This stops training with a clear message.
+def clean_target_column(df, target_name):
+    # This function makes sure the target column becomes numeric.
+    # Some datasets may store yes/no or string-based outcomes.
+    if df[target_name].dtype == "object":
+        lowered = df[target_name].astype(str).str.strip().str.lower()
 
-    df[ZERO_AS_MISSING] = df[ZERO_AS_MISSING].replace(0, np.nan)  # This changes unrealistic zero values into missing values.
+        if set(lowered.unique()) <= {"yes", "no"}:
+            df[target_name] = lowered.map({"no": 0, "yes": 1})
 
-    X = df[FEATURES]  # This keeps only the input columns for training.
-    y = df[TARGET]  # This keeps only the answer column for training.
+        elif set(lowered.unique()) <= {"ckd", "notckd"}:
+            df[target_name] = lowered.map({"notckd": 0, "ckd": 1})
 
-    X_train, X_test, y_train, y_test = train_test_split(  # This splits data into train and test sets.
-        X,  # These are the input features.
-        y,  # These are the correct answers.
-        test_size=0.20,  # This keeps 20% of the data for testing.
-        random_state=42,  # This keeps results repeatable.
-        stratify=y,  # This keeps the diabetes/no-diabetes ratio similar in both sets.
+        elif set(lowered.unique()) <= {"negative", "positive"}:
+            df[target_name] = lowered.map({"negative": 0, "positive": 1})
+
+    return df
+
+
+def train_one_model(disease_name, config):
+    # This trains one disease model from one dataset.
+
+    dataset_path = config["file"]
+    model_path = config["output_model"]
+
+    if not os.path.exists(dataset_path):
+        print(f"[SKIPPED] {disease_name}: dataset not found at {dataset_path}")
+        return
+
+    df = pd.read_csv(dataset_path)
+
+    if df.empty:
+        print(f"[SKIPPED] {disease_name}: dataset is empty")
+        return
+
+    missing_columns = [col for col in config["features"] + [config["target"]] if col not in df.columns]
+    if missing_columns:
+        print(f"[SKIPPED] {disease_name}: missing columns -> {missing_columns}")
+        return
+
+    df = clean_target_column(df, config["target"])
+
+    # Convert all feature columns to numeric where possible.
+    for col in config["features"]:
+        df[col] = pd.to_numeric(df[col], errors="coerce")
+
+    df[config["target"]] = pd.to_numeric(df[config["target"]], errors="coerce")
+
+    # Replace unrealistic zero values with missing values for some medical fields.
+    for col in config["zero_as_missing"]:
+        if col in df.columns:
+            df[col] = df[col].replace(0, np.nan)
+
+    # Drop rows where the target is missing.
+    df = df.dropna(subset=[config["target"]])
+
+    X = df[config["features"]]
+    y = df[config["target"]].astype(int)
+
+    if len(y.unique()) < 2:
+        print(f"[SKIPPED] {disease_name}: target does not contain two classes")
+        return
+
+    X_train, X_test, y_train, y_test = train_test_split(
+        X,
+        y,
+        test_size=0.20,
+        random_state=42,
+        stratify=y,
     )
 
-    model = Pipeline([  # This creates one combined training pipeline.
-        ("imputer", SimpleImputer(strategy="median")),  # This fills missing values using the median.
-        ("classifier", RandomForestClassifier(  # This creates the main prediction model.
-            n_estimators=300,  # This uses 300 decision trees for stable prediction.
-            random_state=42,  # This keeps model training repeatable.
-            class_weight="balanced",  # This helps when one class is smaller than the other.
+    model = Pipeline([
+        ("imputer", SimpleImputer(strategy="median")),
+        ("classifier", RandomForestClassifier(
+            n_estimators=300,
+            random_state=42,
+            class_weight="balanced",
         )),
     ])
 
-    model.fit(X_train, y_train)  # This trains the model using the training data.
+    model.fit(X_train, y_train)
 
-    predictions = model.predict(X_test)  # This asks the model to predict the test data.
-    probabilities = model.predict_proba(X_test)[:, 1]  # This gets diabetes-risk probabilities.
+    predictions = model.predict(X_test)
+    probabilities = model.predict_proba(X_test)[:, 1]
 
-    print("Model Performance")  # This prints a heading for the results.
-    print("Accuracy:", round(accuracy_score(y_test, predictions), 3))  # This shows total correct predictions.
-    print("Recall:", round(recall_score(y_test, predictions), 3))  # This shows how many positive cases were found.
-    print("Precision:", round(precision_score(y_test, predictions), 3))  # This shows how many positive predictions were correct.
-    print("ROC AUC:", round(roc_auc_score(y_test, probabilities), 3))  # This shows ranking performance.
+    accuracy = accuracy_score(y_test, predictions)
+    roc_auc = roc_auc_score(y_test, probabilities)
 
-    os.makedirs("models", exist_ok=True)  # This creates the models folder if it does not exist.
+    os.makedirs("models", exist_ok=True)
 
-    package = {  # This creates a saved package for the app.
-        "model": model,  # This stores the trained model.
-        "features": FEATURES,  # This stores the feature order needed during prediction.
+    package = {
+        "disease": disease_name,
+        "model": model,
+        "features": config["features"],
+        "target": config["target"],
+        "accuracy": accuracy,
+        "roc_auc": roc_auc,
     }
 
-    joblib.dump(package, MODEL_PATH)  # This saves the package to the models folder.
+    joblib.dump(package, model_path)
 
-    print(f"Model saved to: {MODEL_PATH}")  # This confirms where the model was saved.
+    print(f"[DONE] {disease_name}")
+    print(f"       Accuracy: {accuracy:.3f}")
+    print(f"       ROC AUC : {roc_auc:.3f}")
+    print(f"       Saved to: {model_path}")
 
 
-if __name__ == "__main__":  # This runs only when the file is executed directly.
-    train_model()  # This starts training.
+def main():
+    # This loops through all configured disease datasets and trains the available ones.
+    for disease_name, config in TRAINING_CONFIG.items():
+        train_one_model(disease_name, config)
+
+
+if __name__ == "__main__":
+    main()

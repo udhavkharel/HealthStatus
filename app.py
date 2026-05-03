@@ -1,181 +1,322 @@
-# This file creates the Streamlit web app for the health AI agent.
+import os
+import joblib
+import pandas as pd
+import streamlit as st
+import plotly.graph_objects as go
+from PIL import Image
 
-import os  # This lets the app check files and folders.
-import joblib  # This loads the saved machine learning model.
-import pandas as pd  # This stores submitted health records in table format.
-import matplotlib.pyplot as plt  # This draws the colored risk gauge.
-import streamlit as st  # This creates the web application.
-from PIL import Image  # This lets Streamlit preview uploaded images.
-
-from risk_engine import (  # This imports the risk-checking functions from the helper file.
-    blood_pressure_risk,  # This checks blood pressure risk.
-    glucose_risk,  # This checks blood sugar risk.
-    urine_risk,  # This checks urine-test risk.
-    ml_risk,  # This converts ML probability into risk.
-    combine_all_risks,  # This combines all risks into one final category.
-    make_model_row,  # This creates the correct model input row.
-    build_summary,  # This creates a short explanation summary.
-)
-
-MODEL_PATH = "models/health_risk_model.joblib"  # This is where the trained model is stored.
-LOG_PATH = "data/health_logs.csv"  # This is where submitted user records are saved.
-
-st.set_page_config(  # This sets page information.
-    page_title="Health Risk AI Agent",  # This sets the browser tab title.
-    page_icon="🩺",  # This sets a medical-style icon.
-    layout="wide",  # This gives the app more horizontal space.
-)
-
-st.markdown(  # This adds custom CSS styling.
-    """
-    <style>
-    .main {background-color: #f7fbff;}
-    .risk-card {padding: 22px; border-radius: 18px; color: white; font-size: 24px; font-weight: 700; text-align: center;}
-    .info-box {padding: 16px; border-radius: 14px; background: #ffffff; border: 1px solid #d9e6f2;}
-    </style>
-    """,
-    unsafe_allow_html=True,  # This allows HTML styling inside Streamlit.
+from risk_engine import (
+    DISEASE_OPTIONS,
+    DISEASE_HELP,
+    run_analysis,
+    build_ml_input,
+    medical_chatbot,
 )
 
 
-@st.cache_resource  # This keeps the model loaded so the app runs faster.
-def load_model():  # This function loads the trained model.
-    if not os.path.exists(MODEL_PATH):  # This checks whether the model file exists.
-        return None  # This returns nothing if the model has not been trained yet.
-    return joblib.load(MODEL_PATH)  # This loads the saved model package.
+MODEL_FILES = {
+    "Diabetes / Blood Sugar": "models/diabetes_model.joblib",
+    "Heart Disease": "models/heart_model.joblib",
+    "Liver Health": "models/liver_model.joblib",
+}
+
+LOG_PATH = "data/patient_logs.csv"
 
 
-def draw_risk_gauge(score, color):  # This creates a simple visual risk gauge.
-    fig, ax = plt.subplots(figsize=(7, 1.1))  # This creates a wide small chart.
-    ax.barh([0], [100], color="#e8eef5")  # This draws the full gray background bar.
-    ax.barh([0], [score], color=color)  # This draws the colored risk amount.
-    ax.set_xlim(0, 100)  # This sets the gauge range from 0 to 100.
-    ax.set_yticks([])  # This hides the y-axis label.
-    ax.set_xlabel("Risk Score")  # This labels the gauge.
-    ax.set_title("Visual Risk Representation")  # This titles the gauge.
-    ax.grid(axis="x", alpha=0.25)  # This adds light grid lines.
-    st.pyplot(fig)  # This shows the chart in Streamlit.
-
-
-def save_log(record):  # This saves the submitted health record.
-    os.makedirs("data", exist_ok=True)  # This creates the data folder if missing.
-    df = pd.DataFrame([record])  # This converts the record into a one-row table.
-    if os.path.exists(LOG_PATH):  # This checks if a previous log file exists.
-        old = pd.read_csv(LOG_PATH)  # This reads old records.
-        df = pd.concat([old, df], ignore_index=True)  # This adds the new record to the old records.
-    df.to_csv(LOG_PATH, index=False)  # This saves the updated table.
-
-
-package = load_model()  # This loads the trained model package.
-
-st.title("🩺 Health Risk AI Agent")  # This shows the main title.
-st.write("This app accepts health updates, estimates risk category, and gives a short explanation.")  # This explains the app.
-
-st.warning(  # This shows an important medical safety warning.
-    "This tool is only a student prototype and not a medical diagnosis. If you have chest pain, severe weakness, breathing trouble, confusion, fainting, or very abnormal readings, seek urgent medical help."
+st.set_page_config(
+    page_title="MedScreen AI Agent",
+    page_icon="🩺",
+    layout="wide",
 )
 
-left, right = st.columns([1.2, 1])  # This creates two page columns.
 
-with left:  # This starts the left input column.
-    st.subheader("1. Enter health updates")  # This creates the input section heading.
+st.markdown("""
+<style>
+.main {
+    background: linear-gradient(180deg, #f6fbff 0%, #eef7fb 100%);
+}
+.hero-box {
+    padding: 18px;
+    border-radius: 18px;
+    background: linear-gradient(135deg, #0f4c81 0%, #1d7db6 100%);
+    color: white;
+    margin-bottom: 16px;
+}
+.card-box {
+    padding: 16px;
+    border-radius: 16px;
+    background: white;
+    border: 1px solid #d9e6f2;
+    box-shadow: 0 4px 16px rgba(20,40,60,0.06);
+}
+.result-pill {
+    padding: 10px 14px;
+    border-radius: 999px;
+    color: white;
+    font-weight: 700;
+    text-align: center;
+    margin-bottom: 10px;
+}
+.small-note {
+    color: #4d6275;
+    font-size: 14px;
+}
+</style>
+""", unsafe_allow_html=True)
 
-    with st.form("health_form"):  # This groups inputs into one submit form.
-        age = st.number_input("Age", min_value=1, max_value=120, value=30)  # This asks for age.
-        pregnancies = st.number_input("Pregnancies (enter 0 if not applicable)", min_value=0, max_value=25, value=0)  # This asks for pregnancy count.
-        systolic = st.number_input("Systolic blood pressure / upper number", min_value=50, max_value=260, value=120)  # This asks for systolic BP.
-        diastolic = st.number_input("Diastolic blood pressure / lower number", min_value=30, max_value=160, value=80)  # This asks for diastolic BP.
-        glucose_type = st.selectbox("Blood sugar test type", ["Fasting", "Random", "Post-meal / 2-hour"])  # This asks what kind of glucose test it is.
-        glucose = st.number_input("Blood sugar / glucose level (mg/dL)", min_value=20, max_value=700, value=100)  # This asks for blood sugar.
-        a1c_text = st.text_input("A1C value if available, otherwise leave blank", value="")  # This asks for optional A1C.
-        bmi = st.number_input("BMI", min_value=10.0, max_value=80.0, value=25.0)  # This asks for BMI.
-        insulin = st.number_input("Insulin value if available, otherwise keep 0", min_value=0.0, max_value=900.0, value=0.0)  # This asks for insulin.
-        skin_thickness = st.number_input("Skin thickness if available, otherwise keep 0", min_value=0.0, max_value=120.0, value=0.0)  # This asks for skin thickness.
-        pedigree = st.number_input("Diabetes pedigree / family-history score if available", min_value=0.0, max_value=3.0, value=0.5)  # This asks for pedigree score.
 
-        st.subheader("2. Urine test indicators")  # This creates urine-test section heading.
-        protein = st.selectbox("Urine protein", ["Negative", "Trace", "Small", "Moderate", "Large"])  # This asks urine protein.
-        glucose_urine = st.selectbox("Urine glucose", ["Negative", "Trace", "Small", "Moderate", "Large"])  # This asks urine glucose.
-        ketones = st.selectbox("Urine ketones", ["Negative", "Trace", "Small", "Moderate", "Large"])  # This asks urine ketones.
-        blood = st.selectbox("Blood in urine", ["Negative", "Positive"])  # This asks blood in urine.
-        leukocytes = st.selectbox("Leukocytes in urine", ["Negative", "Positive"])  # This asks leukocytes.
+@st.cache_resource
+def load_models():
+    loaded = {}
+    for disease_name, model_path in MODEL_FILES.items():
+        if os.path.exists(model_path):
+            loaded[disease_name] = joblib.load(model_path)
+    return loaded
 
-        st.subheader("3. Serious symptoms")  # This creates symptoms section.
-        emergency_symptoms = st.checkbox("Chest pain, shortness of breath, weakness, vision change, difficulty speaking, confusion, or fainting")  # This asks emergency symptoms.
 
-        submitted = st.form_submit_button("Analyze Risk")  # This creates the submit button.
+def save_log(record):
+    os.makedirs("data", exist_ok=True)
+    df = pd.DataFrame([record])
 
-with right:  # This starts the right image/upload column.
-    st.subheader("Optional report image")  # This creates the image section heading.
-    uploaded_file = st.file_uploader("Upload lab report or urine strip photo for preview only", type=["png", "jpg", "jpeg"])  # This lets user upload an image.
-    if uploaded_file is not None:  # This checks if a file was uploaded.
-        image = Image.open(uploaded_file)  # This opens the uploaded image.
-        st.image(image, caption="Uploaded image preview only. Please enter values manually.", use_column_width=True)  # This displays image.
-    st.info("Image is shown for reference only. This prototype does not diagnose from images.")  # This explains image limitation.
+    if os.path.exists(LOG_PATH):
+        old = pd.read_csv(LOG_PATH)
+        df = pd.concat([old, df], ignore_index=True)
 
-if submitted:  # This runs analysis after the user presses submit.
-    a1c = float(a1c_text) if a1c_text.strip() else None  # This converts A1C text into a number if entered.
+    df.to_csv(LOG_PATH, index=False)
 
-    user_data = {  # This stores all user inputs in one dictionary.
-        "age": age,  # This stores age.
-        "pregnancies": pregnancies,  # This stores pregnancies.
-        "systolic": systolic,  # This stores systolic pressure.
-        "diastolic": diastolic,  # This stores diastolic pressure.
-        "glucose_type": glucose_type,  # This stores test type.
-        "glucose": glucose,  # This stores glucose level.
-        "a1c": a1c,  # This stores A1C.
-        "bmi": bmi,  # This stores BMI.
-        "insulin": insulin,  # This stores insulin.
-        "skin_thickness": skin_thickness,  # This stores skin thickness.
-        "pedigree": pedigree,  # This stores pedigree score.
-        "protein": protein,  # This stores urine protein.
-        "glucose_urine": glucose_urine,  # This stores urine glucose.
-        "ketones": ketones,  # This stores urine ketones.
-        "blood": blood,  # This stores blood in urine.
-        "leukocytes": leukocytes,  # This stores leukocytes.
-        "emergency_symptoms": emergency_symptoms,  # This stores symptom flag.
-    }
 
-    probability = None  # This creates an empty ML probability.
-    if package is not None:  # This checks if the trained model exists.
-        model = package["model"]  # This gets the trained model.
-        features = package["features"]  # This gets the expected feature order.
-        model_row = make_model_row(user_data, features)  # This builds the input row for prediction.
-        probability = model.predict_proba(model_row)[0][1]  # This predicts risk probability.
+def render_gauge(score, color, label):
+    fig = go.Figure(go.Indicator(
+        mode="gauge+number",
+        value=score,
+        number={"suffix": " / 100"},
+        title={"text": f"Risk Score • {label}"},
+        gauge={
+            "axis": {"range": [0, 100]},
+            "bar": {"color": color},
+            "steps": [
+                {"range": [0, 20], "color": "#d4efdf"},
+                {"range": [20, 40], "color": "#fcf3cf"},
+                {"range": [40, 60], "color": "#fdebd0"},
+                {"range": [60, 80], "color": "#fadbd8"},
+                {"range": [80, 100], "color": "#f5b7b1"},
+            ],
+        }
+    ))
+    fig.update_layout(height=280, margin=dict(l=10, r=10, t=50, b=10))
+    st.plotly_chart(fig, use_container_width=True)
 
-    bp_level, bp_notes = blood_pressure_risk(systolic, diastolic, emergency_symptoms)  # This checks BP risk.
-    sugar_level, sugar_notes = glucose_risk(glucose, glucose_type, a1c)  # This checks glucose risk.
-    urine_level, urine_notes = urine_risk(protein, glucose_urine, ketones, blood, leukocytes)  # This checks urine risk.
-    model_level, model_notes = ml_risk(probability)  # This checks ML model risk.
 
-    all_notes = bp_notes + sugar_notes + urine_notes + model_notes  # This combines all explanation notes.
-    category, score, color = combine_all_risks(bp_level, sugar_level, urine_level, model_level)  # This creates final risk result.
-    summary = build_summary(category, all_notes)  # This creates a short summary.
+def num(label, min_value=0.0, max_value=1000.0, value=0.0, step=1.0):
+    return st.number_input(label, min_value=min_value, max_value=max_value, value=value, step=step)
 
-    st.markdown(f"<div class='risk-card' style='background:{color};'>Final Risk Category: {category}</div>", unsafe_allow_html=True)  # This shows risk category.
-    draw_risk_gauge(score, color)  # This shows the visual risk gauge.
 
-    st.subheader("Short Summary")  # This creates summary heading.
-    st.write(summary)  # This shows the summary.
+def render_disease_form(disease_name):
+    data = {}
 
-    st.subheader("Main Findings")  # This creates finding heading.
-    for note in all_notes:  # This loops through all notes.
-        st.write("• " + note)  # This shows each note.
+    if disease_name == "Diabetes / Blood Sugar":
+        data["age"] = num("Age", 1, 120, 35, 1)
+        data["pregnancies"] = num("Pregnancies (0 if not applicable)", 0, 20, 0, 1)
+        data["glucose_type"] = st.selectbox("Blood sugar test type", ["Fasting", "Random", "Post-meal"])
+        data["glucose"] = num("Blood sugar / glucose (mg/dL)", 20, 700, 100, 1)
+        data["a1c"] = st.text_input("HbA1c (%) if available", "")
+        data["bmi"] = num("BMI", 10.0, 80.0, 25.0, 0.1)
+        data["insulin"] = num("Insulin if available", 0.0, 900.0, 0.0, 1.0)
+        data["skin_thickness"] = num("Skin thickness if available", 0.0, 120.0, 0.0, 1.0)
+        data["pedigree"] = num("Diabetes pedigree / family-history score", 0.0, 3.0, 0.5, 0.01)
+        data["diastolic"] = num("Diastolic blood pressure", 30.0, 160.0, 80.0, 1.0)
+        data["urine_glucose"] = st.selectbox("Urine glucose", ["Negative", "Trace", "Small", "Moderate", "Large"])
+        data["ketones"] = st.selectbox("Urine ketones", ["Negative", "Trace", "Small", "Moderate", "Large"])
 
-    st.subheader("Suggested Next Step")  # This creates next-step heading.
-    if category == "Critical":  # This checks critical category.
-        st.error("Seek urgent medical help now, especially if serious symptoms are present.")  # This gives urgent instruction.
-    elif category == "High Risk":  # This checks high-risk category.
-        st.warning("Please arrange medical follow-up soon and recheck abnormal readings.")  # This gives high-risk guidance.
-    elif category == "Moderate Risk":  # This checks moderate category.
-        st.info("Monitor values, repeat tests if needed, and discuss results with a clinician.")  # This gives moderate guidance.
-    else:  # This handles lower categories.
-        st.success("Continue normal monitoring and healthy habits.")  # This gives lower-risk guidance.
+    elif disease_name == "Hypertension / Blood Pressure":
+        data["systolic"] = num("Systolic blood pressure", 50.0, 260.0, 120.0, 1.0)
+        data["diastolic"] = num("Diastolic blood pressure", 30.0, 160.0, 80.0, 1.0)
 
-    log_record = user_data.copy()  # This copies the input data for saving.
-    log_record["ml_probability"] = probability  # This adds the ML probability to the saved record.
-    log_record["risk_category"] = category  # This adds the final category to the saved record.
-    log_record["risk_score"] = score  # This adds the risk score to the saved record.
-    save_log(log_record)  # This saves the record to a CSV database.
+    elif disease_name == "Heart Disease":
+        data["age"] = num("Age", 1, 120, 45, 1)
+        data["sex"] = st.selectbox("Sex code", [0, 1], help="0 = female, 1 = male for most public heart datasets")
+        data["cp"] = st.selectbox("Chest pain type code", [0, 1, 2, 3], help="Dataset-style heart pain category")
+        data["resting_bp"] = num("Resting blood pressure", 50.0, 260.0, 120.0, 1.0)
+        data["cholesterol"] = num("Total cholesterol", 50.0, 700.0, 180.0, 1.0)
+        data["fbs"] = st.selectbox("Fasting blood sugar > 120 mg/dL?", [0, 1])
+        data["max_hr"] = num("Maximum heart rate achieved", 40.0, 250.0, 150.0, 1.0)
+        data["oldpeak"] = num("Oldpeak / ST depression if available", 0.0, 10.0, 0.0, 0.1)
+        data["chest_pain"] = st.checkbox("Current chest pain / discomfort")
 
-    st.caption("Record saved locally in data/health_logs.csv")  # This confirms saving.
+    elif disease_name == "Chronic Kidney Disease":
+        data["creatinine"] = num("Creatinine (mg/dL)", 0.1, 20.0, 1.0, 0.1)
+        data["egfr"] = num("eGFR", 1.0, 150.0, 90.0, 1.0)
+        data["urine_protein"] = st.selectbox("Urine protein", ["Negative", "Trace", "Small", "Moderate", "Large"])
+
+    elif disease_name == "Liver Health":
+        data["age"] = num("Age", 1, 120, 40, 1)
+        data["bilirubin"] = num("Total bilirubin", 0.1, 20.0, 0.8, 0.1)
+        data["direct_bilirubin"] = num("Direct bilirubin", 0.0, 10.0, 0.2, 0.1)
+        data["alp"] = num("ALP", 10.0, 1000.0, 100.0, 1.0)
+        data["alt"] = num("ALT", 1.0, 1000.0, 30.0, 1.0)
+        data["ast"] = num("AST", 1.0, 1000.0, 30.0, 1.0)
+        data["total_proteins"] = num("Total proteins", 1.0, 12.0, 7.0, 0.1)
+        data["albumin"] = num("Albumin", 0.5, 7.0, 4.0, 0.1)
+        data["ag_ratio"] = num("Albumin / Globulin ratio", 0.1, 5.0, 1.2, 0.1)
+
+    elif disease_name == "Uric Acid / Gout":
+        data["uric_acid"] = num("Uric acid (mg/dL)", 1.0, 20.0, 5.5, 0.1)
+        data["joint_pain"] = st.checkbox("Joint pain / swelling present")
+
+    elif disease_name == "Cholesterol / Dyslipidemia":
+        data["total_cholesterol"] = num("Total cholesterol", 50.0, 700.0, 180.0, 1.0)
+        data["ldl"] = num("LDL", 10.0, 400.0, 100.0, 1.0)
+        data["hdl"] = num("HDL", 10.0, 120.0, 50.0, 1.0)
+        data["triglycerides"] = num("Triglycerides", 20.0, 1000.0, 150.0, 1.0)
+
+    elif disease_name == "Thyroid Screening":
+        data["tsh"] = num("TSH", 0.0, 50.0, 2.0, 0.1)
+        data["t3"] = num("T3", 0.0, 500.0, 120.0, 1.0)
+        data["t4"] = num("T4", 0.0, 30.0, 8.0, 0.1)
+
+    elif disease_name == "Anemia Screening":
+        data["hemoglobin"] = num("Hemoglobin", 1.0, 25.0, 13.0, 0.1)
+        data["ferritin"] = num("Ferritin if available", 0.0, 1000.0, 50.0, 1.0)
+        data["fatigue"] = st.checkbox("Fatigue / weakness present")
+
+    elif disease_name == "UTI / Urine Infection":
+        data["leukocytes"] = st.selectbox("Urine leukocytes", ["Negative", "Positive"])
+        data["nitrite"] = st.selectbox("Urine nitrite", ["Negative", "Positive"])
+        data["blood_urine"] = st.selectbox("Blood in urine", ["Negative", "Positive"])
+        data["burning"] = st.checkbox("Burning while urinating")
+        data["frequency"] = st.checkbox("Frequent urination")
+
+    elif disease_name == "General Urine Analysis":
+        data["protein"] = st.selectbox("Urine protein", ["Negative", "Trace", "Small", "Moderate", "Large"])
+        data["glucose_urine"] = st.selectbox("Urine glucose", ["Negative", "Trace", "Small", "Moderate", "Large"])
+        data["ketones"] = st.selectbox("Urine ketones", ["Negative", "Trace", "Small", "Moderate", "Large"])
+        data["blood_urine"] = st.selectbox("Blood in urine", ["Negative", "Positive"])
+        data["leukocytes"] = st.selectbox("Urine leukocytes", ["Negative", "Positive"])
+
+    elif disease_name == "Obesity Risk":
+        data["bmi"] = num("BMI", 10.0, 80.0, 25.0, 0.1)
+        data["waist"] = num("Waist circumference (cm)", 40.0, 200.0, 90.0, 1.0)
+
+    elif disease_name == "Metabolic Syndrome":
+        data["waist"] = num("Waist circumference (cm)", 40.0, 200.0, 90.0, 1.0)
+        data["triglycerides"] = num("Triglycerides", 20.0, 1000.0, 150.0, 1.0)
+        data["hdl"] = num("HDL", 10.0, 120.0, 50.0, 1.0)
+        data["fasting_glucose"] = num("Fasting glucose", 20.0, 700.0, 95.0, 1.0)
+        data["systolic"] = num("Systolic blood pressure", 50.0, 260.0, 120.0, 1.0)
+        data["diastolic"] = num("Diastolic blood pressure", 30.0, 160.0, 80.0, 1.0)
+
+    elif disease_name == "Prediabetes / Insulin Resistance":
+        data["fasting_glucose"] = num("Fasting glucose", 20.0, 700.0, 95.0, 1.0)
+        data["fasting_insulin"] = num("Fasting insulin", 0.0, 300.0, 8.0, 0.1)
+        data["a1c"] = num("HbA1c", 3.0, 15.0, 5.4, 0.1)
+        data["bmi"] = num("BMI", 10.0, 80.0, 25.0, 0.1)
+
+    elif disease_name == "Dehydration Screening":
+        data["sodium"] = num("Sodium", 100.0, 180.0, 140.0, 1.0)
+        data["dry_mouth"] = st.checkbox("Dry mouth")
+        data["dizziness"] = st.checkbox("Dizziness")
+        data["dark_urine"] = st.checkbox("Dark urine")
+
+    return data
+
+
+models = load_models()
+
+st.markdown("""
+<div class="hero-box">
+    <h2 style="margin-bottom:6px;">🩺 MedScreen AI Agent</h2>
+    <div>This upgraded version uses disease selection, smoother scoring, better visual dashboards, and a simple medical Q&A assistant.</div>
+</div>
+""", unsafe_allow_html=True)
+
+tab1, tab2 = st.tabs(["Health Screening Agent", "Medical Q&A Assistant"])
+
+with tab1:
+    col_left, col_right = st.columns([1.4, 1])
+
+    with col_left:
+        st.markdown('<div class="card-box">', unsafe_allow_html=True)
+
+        disease_name = st.selectbox("Select a disease / health area", DISEASE_OPTIONS)
+
+        st.caption(DISEASE_HELP[disease_name])
+
+        with st.form("screening_form"):
+            input_data = render_disease_form(disease_name)
+            analyze_button = st.form_submit_button("Analyze Risk")
+
+        st.markdown('</div>', unsafe_allow_html=True)
+
+    with col_right:
+        st.markdown('<div class="card-box">', unsafe_allow_html=True)
+        st.subheader("Optional document image")
+        uploaded_file = st.file_uploader(
+            "Upload lab report / medical photo (reference only)",
+            type=["png", "jpg", "jpeg"]
+        )
+
+        if uploaded_file is not None:
+            image = Image.open(uploaded_file)
+            st.image(image, use_container_width=True)
+
+        st.info("Image is shown for reference only. The user must enter values manually from the medical report.")
+        st.markdown('</div>', unsafe_allow_html=True)
+
+    if analyze_button:
+        ml_probability = None
+
+        if disease_name in models:
+            model_package = models[disease_name]
+            model_frame = build_ml_input(disease_name, input_data, model_package["features"])
+
+            if model_frame is not None:
+                ml_probability = model_package["model"].predict_proba(model_frame)[0][1]
+
+        result = run_analysis(disease_name, input_data, ml_probability)
+
+        result_col1, result_col2 = st.columns([1, 1])
+
+        with result_col1:
+            st.markdown(
+                f'<div class="result-pill" style="background:{result["color"]};">Final Result: {result["label"]}</div>',
+                unsafe_allow_html=True
+            )
+            render_gauge(result["score"], result["color"], result["label"])
+
+        with result_col2:
+            st.markdown('<div class="card-box">', unsafe_allow_html=True)
+            st.subheader("Short Summary")
+            st.write(result["summary"])
+
+            st.subheader("Main Findings")
+            if result["notes"]:
+                for note in result["notes"]:
+                    st.write("• " + note)
+            else:
+                st.write("• No major abnormal note detected from the entered values.")
+
+            st.subheader("Recommendation")
+            st.write(result["recommendation"])
+            st.markdown('</div>', unsafe_allow_html=True)
+
+        # Save the result.
+        log_record = dict(input_data)
+        log_record["selected_disease"] = disease_name
+        log_record["risk_label"] = result["label"]
+        log_record["risk_score"] = result["score"]
+        log_record["ml_probability"] = ml_probability
+        save_log(log_record)
+
+        st.success("This screening result has been saved to data/patient_logs.csv")
+
+with tab2:
+    st.markdown('<div class="card-box">', unsafe_allow_html=True)
+    st.subheader("Ask a medical screening question")
+    question = st.text_input("Example: What is normal blood pressure?")
+
+    if st.button("Get Answer"):
+        answer = medical_chatbot(question)
+        st.write(answer)
+
+    st.caption("This is a simple knowledge assistant, not a diagnosis chatbot.")
+    st.markdown('</div>', unsafe_allow_html=True)

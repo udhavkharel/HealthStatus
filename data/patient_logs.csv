@@ -1,0 +1,3 @@
+sodium,dry_mouth,dizziness,dark_urine,selected_disease,risk_label,risk_score,ml_probability
+140.0,True,True,True,Dehydration Screening,Moderate Risk,40.0,
+180.0,True,True,True,Dehydration Screening,High Risk,60.0,
