@@ -1,3 +1,8 @@
-sodium,dry_mouth,dizziness,dark_urine,selected_disease,risk_label,risk_score,ml_probability
-140.0,True,True,True,Dehydration Screening,Moderate Risk,40.0,
-180.0,True,True,True,Dehydration Screening,High Risk,60.0,
+sodium,dry_mouth,dizziness,dark_urine,selected_disease,risk_label,risk_score,ml_probability,age,gender,pregnancies,glucose_type,glucose,a1c,bmi,insulin,skin_thickness,pedigree,diastolic,urine_glucose,ketones,waist
+180.0,True,False,True,Dehydration Screening,High Risk,66.2,,,,,,,,,,,,,,,
+,,,,Diabetes / Blood Sugar,Mild Risk,25.2,0.0866666666666666,35.0,Male,0.0,Fasting,100.0,,25.0,0.0,0.0,0.5,80.0,Negative,Negative,
+,,,,Obesity Risk,Mild Risk,29.0,,,,,,,,24.0,,,,,,,90.0
+,,,,Obesity Risk,Mild Risk,35.3,,,,,,,,24.0,,,,,,,100.0
+,,,,Obesity Risk,Moderate Risk,47.8,,,,,,,,30.0,,,,,,,100.0
+,,,,Obesity Risk,High Risk,68.8,,,,,,,,50.0,,,,,,,100.0
+,,,,Obesity Risk,Critical,81.2,,,,,,,,50.0,,,,,,,120.0
