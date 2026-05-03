@@ -1,0 +1,11 @@
+age,pregnancies,systolic,diastolic,glucose_type,glucose,a1c,bmi,insulin,skin_thickness,pedigree,protein,glucose_urine,ketones,blood,leukocytes,emergency_symptoms,ml_probability,risk_category,risk_score
+26,2,180,110,Random,120,,25.07,0.0,0.0,0.5,Negative,Negative,Negative,Negative,Negative,False,0.1033333333333333,High Risk,80
+26,2,180,110,Random,120,,28.0,0.0,0.0,0.5,Negative,Negative,Negative,Negative,Negative,False,0.1366666666666666,High Risk,80
+26,2,180,110,Random,120,,28.0,23.0,0.0,0.5,Negative,Negative,Negative,Negative,Negative,False,0.1366666666666666,High Risk,80
+26,2,180,110,Random,120,,28.0,23.0,2.0,0.5,Negative,Negative,Negative,Negative,Negative,False,0.1366666666666666,High Risk,80
+26,2,180,110,Random,120,,28.0,23.0,2.0,0.5,Negative,Negative,Negative,Negative,Negative,False,0.1366666666666666,High Risk,80
+26,2,180,110,Random,120,,28.0,23.0,2.0,1.0,Negative,Negative,Negative,Negative,Negative,False,0.1933333333333333,High Risk,80
+26,2,180,110,Random,120,,28.0,23.0,2.0,1.0,Trace,Small,Moderate,Positive,Positive,True,0.1933333333333333,Critical,100
+26,2,180,110,Random,120,,28.0,23.0,2.0,1.0,Trace,Small,Moderate,Positive,Positive,True,0.1933333333333333,Critical,100
+50,2,180,110,Random,120,,28.0,23.0,2.0,1.0,Trace,Small,Moderate,Positive,Positive,True,0.2666666666666666,Critical,100
+50,2,180,110,Random,120,,28.0,23.0,2.0,1.0,Trace,Small,Moderate,Positive,Positive,False,0.26666666666666666,High Risk,80
